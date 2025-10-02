@@ -4,7 +4,7 @@ from datetime import date
 
 st.set_page_config(page_title="QM Promptbuilder (QMB)", page_icon="✅", layout="wide")
 
-# ---------- Helper ----------
+# -------- Helpers --------
 def nl_strip(s: str) -> str:
     return textwrap.dedent(s).strip()
 
@@ -21,7 +21,7 @@ def bulletize(label: str, items):
 def make_header(role, bereich, auftrag):
     return f"# Rolle: {role} · Bereich: {bereich} · Auftrag: {auftrag}\n"
 
-# ---------- Prompt-Templates ----------
+# -------- Prompt-Templates --------
 TEMPLATES = {
     "Audit vorbereiten": nl_strip("""
     Du bist mein Co-Auditor. Erstelle auf Basis der Angaben eine **strukturierte Auditvorbereitung**:
@@ -109,106 +109,229 @@ TEMPLATES = {
     """),
 }
 
-NORMSTELLEN = [
-    "ISO 9001:2015, 4 Kontext",
-    "ISO 9001:2015, 5 Führung",
-    "ISO 9001:2015, 6.1 Risiken/Chancen",
-    "ISO 9001:2015, 7 Unterstützung",
-    "ISO 9001:2015, 8 Betrieb",
-    "ISO 9001:2015, 9 Leistung/Evaluierung",
-    "ISO 9001:2015, 10 Verbesserung",
-]
+# Bereich -> empfohlene Use Cases
+BEREICH_TO_TEMPLATES = {
+    "Auditmanagement": ["Audit vorbereiten", "Management-Review", "Dokumentenprüfung/Lenkung"],
+    "Risiko- & Chancenmanagement": ["Risikoanalyse (6.1)", "KPI-Board", "Management-Review"],
+    "Beschwerdemanagement": ["Beschwerdemanagement", "Maßnahmenverfolgung (KVP)", "KPI-Board"],
+    "Dokumentenlenkung": ["Dokumentenprüfung/Lenkung", "Prozessbeschreibung", "Management-Review"],
+    "Prozessmanagement": ["Prozessbeschreibung", "Audit vorbereiten", "KPI-Board"],
+    "Ziel- & Maßnahmenplanung": ["Maßnahmenverfolgung (KVP)", "Management-Review", "KPI-Board"],
+    "Wissensmanagement": ["Schulung & Bewusstsein", "Dokumentenprüfung/Lenkung", "Management-Review"],
+}
 
-BEREICHE = [
-    "Prozessmanagement",
-    "Risiko- & Chancenmanagement",
-    "Dokumentenlenkung",
-    "Auditmanagement",
-    "Beschwerdemanagement",
-    "Ziel- & Maßnahmenplanung",
-    "Wissensmanagement",
-]
+# Normen-Kacheln je Bereich
+NORMVORSCHLAG = {
+    "Auditmanagement": ["ISO 9001:2015, 9 Leistung/Evaluierung", "ISO 9001:2015, 10 Verbesserung"],
+    "Risiko- & Chancenmanagement": ["ISO 9001:2015, 6.1 Risiken/Chancen", "ISO 9001:2015, 9 Leistung/Evaluierung"],
+    "Beschwerdemanagement": ["ISO 9001:2015, 9 Leistung/Evaluierung", "ISO 9001:2015, 8 Betrieb"],
+    "Dokumentenlenkung": ["ISO 9001:2015, 7 Unterstützung", "ISO 9001:2015, 8 Betrieb"],
+    "Prozessmanagement": ["ISO 9001:2015, 4 Kontext", "ISO 9001:2015, 8 Betrieb"],
+    "Ziel- & Maßnahmenplanung": ["ISO 9001:2015, 6.1 Risiken/Chancen", "ISO 9001:2015, 10 Verbesserung"],
+    "Wissensmanagement": ["ISO 9001:2015, 7 Unterstützung", "ISO 9001:2015, 5 Führung"],
+}
+ALLE_NORMEN = sorted({n for lst in NORMVORSCHLAG.values() for n in lst})
 
-# ---------- UI ----------
+# Beteiligte-Vorschläge je Use Case
+BETEILIGTE_SUGGEST = {
+    "Audit vorbereiten": ["QMB", "Prozessverantwortliche", "Leitung", "Auditor:in"],
+    "Risikoanalyse (6.1)": ["Leitung", "Team", "QMB"],
+    "Beschwerdemanagement": ["QMB", "Teamleitung", "Beschwerdebeauftragte:r", "Datenschutz"],
+    "Dokumentenprüfung/Lenkung": ["Dokumenteigner:in", "QMB", "Freigabeinstanz"],
+    "Maßnahmenverfolgung (KVP)": ["Owner", "QMB", "Leitung"],
+    "Prozessbeschreibung": ["Prozessverantwortliche", "QMB", "Schnittstellenpartner"],
+    "Management-Review": ["Geschäftsführung", "QMB", "Leitungen"],
+    "Lieferantenbewertung": ["Einkauf", "QMB", "Fachbereich"],
+    "Schulung & Bewusstsein": ["QMB", "HR/PE", "Fachcoaches"],
+    "Kennzahlen/KPI-Board": ["QMB", "Leitung", "Controller:in"],
+}
+
+# KPI-Vorschläge je Use Case
+KPI_SUGGEST = {
+    "Audit vorbereiten": ["Auditabweichungen", "Termintreue Maßnahmen"],
+    "Risikoanalyse (6.1)": ["Risikoprioritätszahl", "Eintretenshäufigkeit"],
+    "Beschwerdemanagement": ["Bearbeitungszeit", "Wiederholrate", "Schweregrad-Score"],
+    "Dokumentenprüfung/Lenkung": ["Aktualitätsquote", "Durchlaufzeit Revision"],
+    "Maßnahmenverfolgung (KVP)": ["Umsetzungsgrad", "Wirksamkeitsquote"],
+    "Prozessbeschreibung": ["Durchlaufzeit", "Fehlerquote", "Erstlösungsrate"],
+    "Management-Review": ["Zielerreichung %", "Abweichungen ggü. Vorjahr"],
+    "Lieferantenbewertung": ["Termintreue", "Beanstandungsquote"],
+    "Schulung & Bewusstsein": ["Teilnahmequote", "Kompetenzcheck-Bestehensrate"],
+    "Kennzahlen/KPI-Board": ["On-time Reporting", "KPI-Erfüllungsgrad"],
+}
+
+DATENSCHUTZ_HINT = {
+    "Audit vorbereiten": "gering",
+    "Risikoanalyse (6.1)": "gering",
+    "Beschwerdemanagement": "hoch",
+    "Dokumentenprüfung/Lenkung": "gering",
+    "Maßnahmenverfolgung (KVP)": "gering",
+    "Prozessbeschreibung": "keine",
+    "Management-Review": "gering",
+    "Lieferantenbewertung": "gering",
+    "Schulung & Bewusstsein": "keine",
+    "Kennzahlen/KPI-Board": "gering",
+}
+
+# -------- Sidebar: Modus --------
 with st.sidebar:
-    st.header("⚙️ Einstellungen")
-    st.caption("QM-Promptbuilder für den Alltag des/der QMB")
-    selected_template = st.selectbox("Vorlage/Use Case", list(TEMPLATES.keys()))
+    st.header("⚙️ Modus & Export")
+    modus = st.radio("Modus wählen", ["Geführt (empfohlen)", "Frei"], index=0)
     st.markdown("---")
     st.write("**Export**")
     filename = st.text_input("Dateiname (ohne Endung)", value="qm-prompt")
     add_context_header = st.checkbox("Metadaten als Kopfzeile einfügen", value=True)
 
 st.title("✅ QM Promptbuilder (QMB)")
-st.write("Erzeuge in Sekunden **präzise Prompts** für wiederkehrende QM-Aufgaben. Kopieren oder als Datei exportieren.")
+st.caption("Abhängige Dropdowns & geführte Menüführung für den Alltag des/der QMB.")
 
-col1, col2, col3 = st.columns([1.1, 1, 1])
+# -------- UI: Geführter Modus --------
+if modus.startswith("Geführt"):
+    st.subheader("1) Auswahl · Bereich → Use Case")
+    colA, colB = st.columns([1, 1])
 
-with col1:
-    role = st.text_input("Rolle", value="Qualitätsmanagementbeauftragte:r (QMB)")
-    bereich = st.selectbox("Bereich", BEREICHE, index=0)
-    auftrag = st.text_input("Auftrag", value=selected_template)
+    with colA:
+        bereich = st.selectbox(
+            "Bereich",
+            list(BEREICH_TO_TEMPLATES.keys()),
+            index=0,
+            help="Wähle zuerst den QM-Bereich. Die Use Cases passen sich automatisch an."
+        )
+    with colB:
+        vorgeschlagene = BEREICH_TO_TEMPLATES[bereich]
+        selected_template = st.selectbox(
+            "Use Case",
+            vorgeschlagene + [t for t in TEMPLATES.keys() if t not in vorgeschlagene],
+            index=0,
+            help="Priorisierte Vorschläge zuerst, weitere Use Cases darunter."
+        )
 
-with col2:
-    norm = st.multiselect("Normbezug (optional)", NORMSTELLEN, default=[])
-    beteiligte = st.text_input("Beteiligte/Stakeholder (Komma-getrennt)", value="Leitung, Team, Träger, ggf. Externe")
-    ressourcen = st.text_input("Ressourcen/Tools", value="Risikomatrix, Vorlagen, Planner/Boards, DMS")
+    st.subheader("2) Kontext & Metadaten (vorausgefüllt, anpassbar)")
+    col1, col2, col3 = st.columns([1.1, 1, 1])
 
-with col3:
-    kpis = st.text_input("KPIs/Kriterien (optional)", value="Termintreue, Fehlerquote, Bearbeitungszeit")
-    frist = st.text_input("Frist/Zeitrahmen (optional)", value="")
-    schutz = st.selectbox("Datenschutzrelevanz", ["keine", "gering", "hoch"], index=0)
+    with col1:
+        role = st.text_input("Rolle", value="Qualitätsmanagementbeauftragte:r (QMB)")
+        norm_default = NORMVORSCHLAG.get(bereich, [])
+        norm = st.multiselect("Normbezug (empfohlen)", ALLE_NORMEN, default=norm_default)
 
-st.markdown("### 🧠 Kontext (frei formulierbar)")
-kontext = st.text_area("Kurzbeschreibung / Besonderheiten / Scope", height=120, placeholder="z. B. Standort, Prozess, bekannte Probleme, Auditumfang …")
+    with col2:
+        beteiligte_default = BETEILIGTE_SUGGEST.get(selected_template, ["QMB", "Leitung"])
+        beteiligte = st.multiselect("Beteiligte/Stakeholder", beteiligte_default, default=beteiligte_default)
+        ressourcen = st.text_input("Ressourcen/Tools", value="Vorlagen, Planner/Boards, DMS, Risikomatrix")
 
-st.markdown("### 📌 Ausgabepräferenz")
-stil = st.selectbox("Stil/Format", ["kühl & präzise", "praxisnah & knapp", "tabellarisch", "Checklistenstil"], index=2)
+    with col3:
+        kpi_default = KPI_SUGGEST.get(selected_template, [])
+        kpis = st.multiselect("KPIs/Kriterien (empfohlen)", kpi_default, default=kpi_default)
+        schutz_default = DATENSCHUTZ_HINT.get(selected_template, "keine")
+        schutz = st.selectbox("Datenschutzrelevanz", ["keine", "gering", "hoch"], index=["keine","gering","hoch"].index(schutz_default))
+        frist = st.text_input("Frist/Zeitrahmen (optional)", value="")
 
-st.markdown("---")
-
-if st.button("🎯 Prompt generieren", type="primary"):
-    header = make_header(role, bereich, auftrag) if add_context_header else ""
-    meta = "\n".join([
-        bulletize("Norm", norm),
-        bulletize("Beteiligte", [b.strip() for b in beteiligte.split(",")]),
-        bulletize("Ressourcen", [r.strip() for r in ressourcen.split(",")]),
-        bulletize("KPIs/Kriterien", [k.strip() for k in kpis.split(",")]),
-        f"**Datenschutz:** {schutz}",
-        f"**Frist:** {frist or '–'}",
-        f"**Datum:** {date.today().isoformat()}",
-    ])
-
-    user_input = []
-    if kontext.strip():
-        user_input.append(section("Kontext", kontext))
-    user_input.append(section("Metadaten", meta))
-
-    instr = section("Auftrag an die KI", TEMPLATES[selected_template])
-    if stil == "tabellarisch":
-        instr += "\n**Bitte Tabellen überall dort, wo sinnvoll.**\n"
-    elif stil == "Checklistenstil":
-        instr += "\n**Bitte als Checklistenpunkte mit kurzen Begründungen.**\n"
-    elif stil == "praxisnah & knapp":
-        instr += "\n**Bitte knapp, mit Handlungsempfehlungen zuerst (Top-3).**\n"
-    else:
-        # kühl & präzise
-        instr += "\n**Bitte sachlich, präzise, normnah.**\n"
-
-    prompt = nl_strip(header + "\n".join(user_input) + instr)
-
-    st.markdown("### ✅ Dein Prompt")
-    st.code(prompt, language="markdown")
-
-    st.download_button(
-        label="⬇️ Als .md speichern",
-        data=prompt.encode("utf-8"),
-        file_name=f"{(filename or 'qm-prompt')}.md",
-        mime="text/markdown",
+    st.markdown("### 🧠 Kurzkontext")
+    kontext = st.text_area(
+        "Besonderheiten / Scope (z. B. Standort, Prozess, Stichprobe, bekannte Probleme)",
+        height=120,
+        placeholder="Kurzer, präziser Kontext. Beispiel: Internes Audit Prozess Aufnahmeverfahren, Fokus: Nachweise, Stichprobe: 10 Akten (Jan–März)."
     )
 
-st.markdown("---")
-with st.expander("📚 Prompt-Bibliothek (Sofort nutzbar)"):
-    for key, val in TEMPLATES.items():
-        st.markdown(f"**{key}**")
-        st.code(val, language="markdown")
+    st.markdown("### 📌 Ausgabepräferenz")
+    stil = st.selectbox("Stil/Format", ["kühl & präzise", "praxisnah & knapp", "tabellarisch", "Checklistenstil"], index=2)
+
+    st.markdown("---")
+    generate_clicked = st.button("🎯 Prompt generieren", type="primary")
+
+# -------- UI: Freier Modus (alle Felder offen) --------
+else:
+    st.subheader("Freier Modus")
+    col1, col2, col3 = st.columns([1.1, 1, 1])
+
+    with col1:
+        role = st.text_input("Rolle", value="Qualitätsmanagementbeauftragte:r (QMB)")
+        bereich = st.selectbox("Bereich", list(BEREICH_TO_TEMPLATES.keys()), index=0)
+        selected_template = st.selectbox("Vorlage/Use Case", list(TEMPLATES.keys()))
+
+    with col2:
+        norm = st.multiselect("Normbezug (optional)", ALLE_NORMEN, default=[])
+        beteiligte = st.text_input("Beteiligte/Stakeholder (Komma-getrennt)", value="Leitung, Team, Träger")
+
+    with col3:
+        ressourcen = st.text_input("Ressourcen/Tools", value="Risikomatrix, Vorlagen, Planner/Boards, DMS")
+        kpis = st.text_input("KPIs/Kriterien (optional)", value="Termintreue, Fehlerquote, Bearbeitungszeit")
+
+    st.markdown("### 🧠 Kontext (frei)")
+    kontext = st.text_area("Kurzbeschreibung / Besonderheiten / Scope", height=120)
+
+    st.markdown("### 📌 Ausgabepräferenz")
+    stil = st.selectbox("Stil/Format", ["kühl & präzise", "praxisnah & knapp", "tabellarisch", "Checklistenstil"], index=2)
+
+    schutz = st.selectbox("Datenschutzrelevanz", ["keine", "gering", "hoch"], index=0)
+    frist = st.text_input("Frist/Zeitrahmen (optional)", value="")
+
+    st.markdown("---")
+    generate_clicked = st.button("🎯 Prompt generieren", type="primary")
+
+# -------- Prompt-Erstellung (beide Modi) --------
+if generate_clicked:
+    # Validierung: Minimalangaben
+    minimal_ok = bool(bereich and selected_template and role)
+    if not minimal_ok:
+        st.error("Bitte mindestens **Bereich, Use Case und Rolle** auswählen.")
+    else:
+        # beteiligte in beide Modi harmonisieren
+        if isinstance(beteiligte, list):
+            beteiligte_items = beteiligte
+        else:
+            beteiligte_items = [b.strip() for b in str(beteiligte).split(",") if b.strip()]
+
+        # kpis in beide Modi harmonisieren
+        if isinstance(kpis, list):
+            kpi_items = kpis
+        else:
+            kpi_items = [k.strip() for k in str(kpis).split(",") if k.strip()]
+
+        header = make_header(role, bereich, selected_template) if add_context_header else ""
+        meta = "\n".join([
+            bulletize("Norm", norm),
+            bulletize("Beteiligte", beteiligte_items),
+            bulletize("Ressourcen", [r.strip() for r in str(ressourcen).split(",")]),
+            bulletize("KPIs/Kriterien", kpi_items),
+            f"**Datenschutz:** {schutz}",
+            f"**Frist:** {frist or '–'}",
+            f"**Datum:** {date.today().isoformat()}",
+        ])
+
+        user_input = []
+        if str(kontext).strip():
+            user_input.append(section("Kontext", kontext))
+        user_input.append(section("Metadaten", meta))
+
+        instr = section("Auftrag an die KI", TEMPLATES[selected_template])
+        if stil == "tabellarisch":
+            instr += "\n**Bitte Tabellen überall dort, wo sinnvoll.**\n"
+        elif stil == "Checklistenstil":
+            instr += "\n**Bitte als Checklistenpunkte mit kurzen Begründungen.**\n"
+        elif stil == "praxisnah & knapp":
+            instr += "\n**Bitte knapp, mit Handlungsempfehlungen zuerst (Top-3).**\n"
+        else:
+            instr += "\n**Bitte sachlich, präzise, normnah.**\n"
+
+        prompt = nl_strip(header + "\n".join(user_input) + instr)
+
+        st.success("Prompt erstellt. Du kannst ihn kopieren oder als Datei speichern.")
+        st.markdown("### ✅ Dein Prompt")
+        st.code(prompt, language="markdown")
+
+        st.download_button(
+            label="⬇️ Als .md speichern",
+            data=prompt.encode("utf-8"),
+            file_name=f"{(filename or 'qm-prompt')}.md",
+            mime="text/markdown",
+        )
+
+# -------- Hilfe & Hinweise --------
+with st.expander("ℹ️ Hinweise zur Menülogik"):
+    st.markdown("""
+- **Geführter Modus:** Die Dropdowns sind **abhängig**: *Bereich → Use Case → passende Normen, Beteiligte, KPIs* werden **automatisch vorgeschlagen** (du kannst alles überschreiben).
+- **Datenschutz-Hinweis** wird je Use Case **vorbelegt** (z. B. „hoch“ bei Beschwerdemanagement).
+- **Validierung:** Ohne Bereich, Use Case und Rolle wird kein Prompt erzeugt.
+- **Schnellstart:** Bereich wählen → vorgeschlagenen Use Case übernehmen → optional Kontext ergänzen → Prompt generieren.
+""")
