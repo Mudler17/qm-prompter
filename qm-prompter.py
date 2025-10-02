@@ -1,8 +1,35 @@
 import textwrap
 import streamlit as st
 from datetime import date
+import uuid
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="QM Promptbuilder (QMB)", page_icon="✅", layout="wide")
+
+# -------- Sticky-Hinweis (oben, sehr sichtbar) --------
+st.markdown(
+    """
+    <style>
+      .sticky-banner{
+        position: sticky;
+        top: 0; z-index: 9999;
+        padding: 10px 14px;
+        border-left: 8px solid #d97706;
+        background: #FEF3C7; /* amber-100 */
+        color: #111827;
+        font-weight: 600;
+        border-radius: 6px;
+        margin-bottom: 8px;
+      }
+      .sticky-banner small{font-weight: 500; color:#6b7280;}
+    </style>
+    <div class="sticky-banner">
+      ⚠️ Datenschutz-Hinweis: <u>Keine personenbezogenen Daten</u> oder <u>internen Unternehmensdaten</u> eingeben.
+      <small>Nur generische/abstrahierte Informationen verwenden.</small>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 # -------- Helpers --------
 def nl_strip(s: str) -> str:
@@ -20,6 +47,38 @@ def bulletize(label: str, items):
 
 def make_header(role, bereich, auftrag):
     return f"# Rolle: {role} · Bereich: {bereich} · Auftrag: {auftrag}\n"
+
+def copy_to_clipboard_button(text: str, label: str = "📋 In Zwischenablage kopieren"):
+    """
+    Rendert einen HTML-Button, der den übergebenen Text in die Zwischenablage kopiert.
+    Nutzt navigator.clipboard.writeText; benötigt https (Streamlit Cloud erfüllt das).
+    """
+    element_id = f"clip_{uuid.uuid4().hex}"
+    escaped = (
+        text.replace("\\", "\\\\")
+            .replace("`", "\\`")
+            .replace("$", "\\$")
+            .replace("</", "<\\/")
+    )
+    html = f"""
+    <textarea id="{element_id}" style="position:absolute; left:-10000px; top:-10000px;">{escaped}</textarea>
+    <button onclick="
+        const el = document.getElementById('{element_id}');
+        el.select();
+        el.setSelectionRange(0, 999999);
+        navigator.clipboard.writeText(el.value).then(() => {{
+            const prev = this.innerText;
+            this.innerText = '✅ Kopiert';
+            setTimeout(() => this.innerText = prev, 1500);
+        }}).catch(() => {{
+            alert('Kopieren nicht möglich. Bitte manuell markieren und kopieren.');
+        }});
+    " style="
+        cursor:pointer; padding:8px 12px; border-radius:6px;
+        border:1px solid #D1D5DB; background:#F3F4F6;
+    ">{label}</button>
+    """
+    components.html(html, height=0, scrolling=False)
 
 # -------- Prompt-Templates --------
 TEMPLATES = {
@@ -112,11 +171,11 @@ TEMPLATES = {
 # Bereich -> empfohlene Use Cases
 BEREICH_TO_TEMPLATES = {
     "Auditmanagement": ["Audit vorbereiten", "Management-Review", "Dokumentenprüfung/Lenkung"],
-    "Risiko- & Chancenmanagement": ["Risikoanalyse (6.1)", "KPI-Board", "Management-Review"],
-    "Beschwerdemanagement": ["Beschwerdemanagement", "Maßnahmenverfolgung (KVP)", "KPI-Board"],
+    "Risiko- & Chancenmanagement": ["Risikoanalyse (6.1)", "Kennzahlen/KPI-Board", "Management-Review"],
+    "Beschwerdemanagement": ["Beschwerdemanagement", "Maßnahmenverfolgung (KVP)", "Kennzahlen/KPI-Board"],
     "Dokumentenlenkung": ["Dokumentenprüfung/Lenkung", "Prozessbeschreibung", "Management-Review"],
-    "Prozessmanagement": ["Prozessbeschreibung", "Audit vorbereiten", "KPI-Board"],
-    "Ziel- & Maßnahmenplanung": ["Maßnahmenverfolgung (KVP)", "Management-Review", "KPI-Board"],
+    "Prozessmanagement": ["Prozessbeschreibung", "Audit vorbereiten", "Kennzahlen/KPI-Board"],
+    "Ziel- & Maßnahmenplanung": ["Maßnahmenverfolgung (KVP)", "Management-Review", "Kennzahlen/KPI-Board"],
     "Wissensmanagement": ["Schulung & Bewusstsein", "Dokumentenprüfung/Lenkung", "Management-Review"],
 }
 
@@ -173,7 +232,7 @@ DATENSCHUTZ_HINT = {
     "Kennzahlen/KPI-Board": "gering",
 }
 
-# -------- Sidebar: Modus --------
+# -------- Sidebar: Modus & Export --------
 with st.sidebar:
     st.header("⚙️ Modus & Export")
     modus = st.radio("Modus wählen", ["Geführt (empfohlen)", "Frei"], index=0)
@@ -239,7 +298,7 @@ if modus.startswith("Geführt"):
     st.markdown("---")
     generate_clicked = st.button("🎯 Prompt generieren", type="primary")
 
-# -------- UI: Freier Modus (alle Felder offen) --------
+# -------- UI: Freier Modus --------
 else:
     st.subheader("Freier Modus")
     col1, col2, col3 = st.columns([1.1, 1, 1])
@@ -271,18 +330,15 @@ else:
 
 # -------- Prompt-Erstellung (beide Modi) --------
 if generate_clicked:
-    # Validierung: Minimalangaben
     minimal_ok = bool(bereich and selected_template and role)
     if not minimal_ok:
         st.error("Bitte mindestens **Bereich, Use Case und Rolle** auswählen.")
     else:
-        # beteiligte in beide Modi harmonisieren
         if isinstance(beteiligte, list):
             beteiligte_items = beteiligte
         else:
             beteiligte_items = [b.strip() for b in str(beteiligte).split(",") if b.strip()]
 
-        # kpis in beide Modi harmonisieren
         if isinstance(kpis, list):
             kpi_items = kpis
         else:
@@ -316,22 +372,34 @@ if generate_clicked:
 
         prompt = nl_strip(header + "\n".join(user_input) + instr)
 
-        st.success("Prompt erstellt. Du kannst ihn kopieren oder als Datei speichern.")
+        st.success("Prompt erstellt. Du kannst ihn kopieren oder exportieren.")
         st.markdown("### ✅ Dein Prompt")
         st.code(prompt, language="markdown")
 
-        st.download_button(
-            label="⬇️ Als .md speichern",
-            data=prompt.encode("utf-8"),
-            file_name=f"{(filename or 'qm-prompt')}.md",
-            mime="text/markdown",
-        )
+        # --- Neuer Button: In Zwischenablage kopieren ---
+        copy_to_clipboard_button(prompt, "📋 In Zwischenablage kopieren")
+
+        # --- Downloads: MD + TXT ---
+        col_dl1, col_dl2 = st.columns([1,1])
+        with col_dl1:
+            st.download_button(
+                label="⬇️ Als .md speichern",
+                data=prompt.encode("utf-8"),
+                file_name=f"{(filename or 'qm-prompt')}.md",
+                mime="text/markdown",
+            )
+        with col_dl2:
+            st.download_button(
+                label="⬇️ Als .txt speichern",
+                data=prompt,  # als String ok
+                file_name=f"{(filename or 'qm-prompt')}.txt",
+                mime="text/plain",
+            )
 
 # -------- Hilfe & Hinweise --------
-with st.expander("ℹ️ Hinweise zur Menülogik"):
+with st.expander("ℹ️ Hinweise zur Menülogik & Datenschutz"):
     st.markdown("""
-- **Geführter Modus:** Die Dropdowns sind **abhängig**: *Bereich → Use Case → passende Normen, Beteiligte, KPIs* werden **automatisch vorgeschlagen** (du kannst alles überschreiben).
-- **Datenschutz-Hinweis** wird je Use Case **vorbelegt** (z. B. „hoch“ bei Beschwerdemanagement).
-- **Validierung:** Ohne Bereich, Use Case und Rolle wird kein Prompt erzeugt.
-- **Schnellstart:** Bereich wählen → vorgeschlagenen Use Case übernehmen → optional Kontext ergänzen → Prompt generieren.
+- **Geführter Modus:** Abhängige Dropdowns: *Bereich → Use Case → Normen/Beteiligte/KPIs* mit sinnvollen Defaults.
+- **Datenschutz:** Die App ist für **abstrahierte Inhalte** konzipiert. Bitte **keine personenbezogenen** oder **internen** Daten eingeben.
+- **Export:** Prompt als **Markdown** oder **Text** speichern. Zusätzlich: **Kopieren in Zwischenablage**.
 """)
